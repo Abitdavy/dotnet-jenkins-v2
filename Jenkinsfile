@@ -6,12 +6,17 @@ pipeline {
         GITHUB_TOKEN = credentials('github-secret-token')
     }
     stages {
-        stage('Checkout') {
+        stage('Clean Workspace') {
             steps {
                 script {
                     // Ensure the workspace is clean
-                    sh 'rm -rf * || true'
-                    
+                    deleteDir()
+                }
+            }
+        }
+        stage('Checkout') {
+            steps {
+                script {
                     // Clone the repository securely
                     withCredentials([string(credentialsId: 'github-secret-token', variable: 'GITHUB_TOKEN')]) {
                         sh '''
