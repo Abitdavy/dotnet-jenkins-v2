@@ -34,6 +34,17 @@ pipeline {
                 }
             }
         }
+        stage('Stop Existing Container') {
+                    steps {
+                        script {
+                            // Stop any running containers using port 8081
+                            def runningContainers = sh(script: "docker ps --filter 'publish=8081' -q", returnStdout: true).trim()
+                            if (runningContainers) {
+                                sh "docker stop ${runningContainers}"
+                            }
+                        }
+                    }
+                }
         stage('Run Docker Container') {
             steps {
                 script {
