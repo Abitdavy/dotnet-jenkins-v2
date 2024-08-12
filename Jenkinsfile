@@ -1,81 +1,62 @@
 pipeline {
-    agent {
-        kubernetes {
-            defaultContainer 'jnlp'
-            yaml """
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    component: ci
-spec:
-  containers:
-  - name: dotnetsdk
-    image: mcr.microsoft.com/dotnet/sdk:7.0
-    command:
-    - cat
-    tty: true
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:debug
-    command:
-    - /busybox/cat
-    tty: true
-    volumeMounts:
-      - name: docker-config
-        mountPath: /kaniko/.docker
-  volumes:
-  - name: docker-config
-    projected:
-      sources:
-      - secret:
-          name: regcred
-          items:
-            - key: .dockerconfigjson
-              path: config.json
-"""
-        }
+    agent any
+    environment {
+        DOCKER_IMAGE = 'dotnet-jenkins-v2-image'
+        GITHUB_REPO = 'https://github.com/Abitdavy/dotnet-jenkins-v2.git'
+        GITHUB_TOKEN = credentials('github-secret-token')
     }
-
     stages {
+        stage('Clean Workspace') {
+            steps {
+                script {
+                    // Ensure the workspace is clean
+                    deleteDir()
+                }
+            }
+        }
         stage('Checkout') {
             steps {
                 script {
-                    checkout scm
-                }
-            }
-        }
-
-        stage('Build Dotnet') {
-            steps {
-                container('dotnetsdk') {
-                    dir('db_calculation_api') {
-                        sh 'dotnet restore'
-                        sh 'dotnet build -c Release'
-                    }
-                }
-            }
-        }
-
-        stage('Build Docker Image with Kaniko') {
-            steps {
-                container('kaniko') {
-                    dir('db_calculation_api') {
+                    // Clone the repository securely
+                    withCredentials([string(credentialsId: 'github-secret-token', variable: 'GITHUB_TOKEN')]) {
                         sh '''
-                        /kaniko/executor --dockerfile=Dockerfile --context . \
-                        --destination=registry-url/db_calculation_api:latest
+                            git clone https://${GITHUB_TOKEN}@github.com/Abitdavy/dotnet-jenkins-v2.git .
                         '''
                     }
                 }
             }
         }
-    }
-
-    post {
-        success {
-            echo 'Build and Docker image creation successful!'
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image
+                    docker.build("${env.DOCKER_IMAGE}:${env.BUILD_NUMBER}", ".")
+                }
+            }
         }
-        failure {
-            echo 'Build failed.'
+        stage('Stop Existing Container') {
+                    steps {
+                        script {
+                            // Stop any running containers using port 8081
+                            def runningContainers = sh(script: "docker ps --filter 'publish=8081' -q", returnStdout: true).trim()
+                            if (runningContainers) {
+                                sh "docker stop ${runningContainers}"
+                            }
+                        }
+                    }
+                }
+        stage('Run Docker Container') {
+            steps {
+                script {
+                    // Run the Docker container
+                    docker.image("${env.DOCKER_IMAGE}:${env.BUILD_NUMBER}").run('-d -p 8081:80')
+                }
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
         }
     }
 }
